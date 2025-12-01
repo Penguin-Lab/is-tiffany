@@ -1,8 +1,11 @@
-from is_wire.rpc import ServiceProvider, LogInterceptor, TracingInterceptor
-from opencensus.ext.zipkin.trace_exporter import ZipkinExporter
-from is_wire.core import Logger, AsyncTransport
-from .StreamChannel import StreamChannel
 import re
+
+from is_wire.core import AsyncTransport, Logger
+from is_wire.rpc import LogInterceptor, ServiceProvider, TracingInterceptor
+from opencensus.ext.zipkin.trace_exporter import ZipkinExporter
+
+from .StreamChannel import StreamChannel
+
 
 class Connection:
     """
@@ -30,10 +33,12 @@ class Connection:
         self.log = log.log
 
         self.log.info(f"Successfully connected to broker at {broker_uri}")
-        
-        self.exporter = self.create_exporter(service_name, zipkin_uri, log)
+
+        self.exporter = self.create_exporter(service_name, zipkin_uri, log.log)
         self.provider.add_interceptor(TracingInterceptor(self.exporter))
-        self.log.info(f"Zipkin exporter initialized for service '{service_name}' with URI: {zipkin_uri}")
+        self.log.info(
+            f"Zipkin exporter initialized for service '{service_name}' with URI: {zipkin_uri}"
+        )
 
         self.broker_uri = broker_uri
         self.zipkin_uri = zipkin_uri
@@ -60,8 +65,9 @@ class Connection:
         """
         zipkin_ok = re.match(r"http://([a-zA-Z0-9\.-]+)(:(\d+))?", uri)
         if not zipkin_ok:
-            log.critical('Invalid Zipkin URI "{}", expected http://<hostname>:<port>', uri)
-            raise ValueError(f"Invalid Zipkin URI: {uri}")
+            log.critical(
+                'Invalid Zipkin URI "{}", expected http://<hostname>:<port>', uri
+            )
 
         exporter = ZipkinExporter(
             service_name=service_name,

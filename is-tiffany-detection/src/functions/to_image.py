@@ -1,8 +1,11 @@
-from is_msgs.image_pb2 import Image
-import numpy as np
 import cv2
+import numpy as np
+from is_msgs.image_pb2 import Image
 
-def to_image(image: np.ndarray, encode_format: str = ".jpeg", compression_level: float = 0.8) -> Image:
+
+def to_image(
+    image: np.ndarray, encode_format: str = ".jpeg", compression_level: float = 1.0
+) -> Image:
     """Encodes a NumPy image array into a Protobuf `Image` message.
 
     This function compresses an OpenCV image (NumPy array) into either JPEG or PNG format,

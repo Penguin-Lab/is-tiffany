@@ -1,7 +1,8 @@
-from is_wire.core import Channel
-from is_wire.core import Message
-from typing import Tuple, Union
 import socket
+from typing import Tuple, Union
+
+from is_wire.core import Channel, Message
+
 
 class StreamChannel(Channel):
     """Specialized class to consume only the latest message from a channel.
@@ -12,7 +13,9 @@ class StreamChannel(Channel):
     is undesirable.
     """
 
-    def __init__(self, uri: str = "amqp://guest:guest@10.10.2.211:30000", exchange: str = "is"):
+    def __init__(
+        self, uri: str = "amqp://guest:guest@10.10.2.211:30000", exchange: str = "is"
+    ):
         """Initializes the streaming channel.
 
         Args:
@@ -21,7 +24,9 @@ class StreamChannel(Channel):
         """
         super().__init__(uri=uri, exchange=exchange)
 
-    def consume_last(self, return_dropped: bool = False) -> Union[Message, Tuple[Message, int]]:
+    def consume_last(
+        self, return_dropped: bool = False
+    ) -> Union[Message, Tuple[Message, int]]:
         """Consumes the latest available message from the channel, discarding previous ones.
 
         This method first waits for a message and then quickly consumes
@@ -34,7 +39,7 @@ class StreamChannel(Channel):
 
         Returns:
             msg (Message | Tuple[Message, int]]): The latest available message.
-                                                    If `return_dropped` is True, 
+                                                    If `return_dropped` is True,
                                                     returns a tuple containing the
                                                     message and the number of dropped messages.
 

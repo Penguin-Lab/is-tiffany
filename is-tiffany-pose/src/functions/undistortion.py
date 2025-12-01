@@ -1,5 +1,6 @@
-import numpy as np
 import cv2
+import numpy as np
+
 
 def undistortPoints(parameters: dict, points: np.ndarray):
     """
@@ -7,7 +8,7 @@ def undistortPoints(parameters: dict, points: np.ndarray):
 
     Args:
         parameters (dict): Dictionary containing camera calibration data:
-            - 'mtx': Camera intrinsic matrix.
+            - 'K': Camera intrinsic matrix.
             - 'rt': Rotation-translation matrix.
             - 'dist': Distortion coefficients.
         points (np.ndarray): Array of image points to undistort, shape (N,2) or (1,N,2).
@@ -17,16 +18,10 @@ def undistortPoints(parameters: dict, points: np.ndarray):
             - Projection matrix (3x4) combining intrinsic and extrinsic parameters.
             - Undistorted image points.
     """
-    mtxK = parameters['mtx']
-    Rtcw = parameters['rt']
-    dis = parameters['dist']
-
-    resolution = (1280, 720)
-    newK, roi = cv2.getOptimalNewCameraMatrix(mtxK, dis, resolution, 1, resolution)
-
-    x, y, _, _ = roi
-    newK[0, 2] -= x
-    newK[1, 2] -= y
+    mtxK = parameters["K"]
+    Rtcw = parameters["rt"]
+    dis = parameters["dist"]
+    newK = parameters["nK"]
 
     undistorted = cv2.undistortPoints(points, mtxK, dis, None, newK).squeeze(axis=0)
     mtxP = newK @ Rtcw
@@ -53,18 +48,18 @@ def point2world(parameters: dict, points: dict) -> np.ndarray:
         zeros = np.zeros((3, 1))
         mtx = np.array(mtxP)
 
-        # Construct matrix with extrinsic info for each camera
-        for i in points.keys():
-            if i == cam_id:
-                mtx = np.hstack((mtx, -u))
-            else:
-                mtx = np.hstack((mtx, zeros))
-
-        # Stack to form the full A matrix
-        if len(mtxA) == 0:
-            mtxA = mtx
+    # Construct matrix with extrinsic info for each camera
+    for i in points.keys():
+        if i == cam_id:
+            mtx = np.hstack((mtx, -u))
         else:
-            mtxA = np.vstack((mtxA, mtx))
+            mtx = np.hstack((mtx, zeros))
+
+    # Stack to form the full A matrix
+    if len(mtxA) == 0:
+        mtxA = mtx
+    else:
+        mtxA = np.vstack((mtxA, mtx))
 
     # Solve using SVD
     _, _, V_transpose = np.linalg.svd(mtxA)

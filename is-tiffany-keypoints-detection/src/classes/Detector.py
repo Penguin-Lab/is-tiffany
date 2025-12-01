@@ -1,8 +1,9 @@
-from is_msgs.image_pb2 import ObjectAnnotation, BoundingPoly, Vertex, PointAnnotation
-from ultralytics.engine.results import Results
-from typing import List, Dict, Any
-from ultralytics import YOLO
+from typing import Any, Dict, List
+
 import numpy as np
+from is_msgs.image_pb2 import BoundingPoly, ObjectAnnotation, PointAnnotation, Vertex
+from ultralytics import YOLO
+from ultralytics.engine.results import Results
 
 
 class Detector:
@@ -37,7 +38,9 @@ class Detector:
         results = self.model.predict(source=img, imgsz=96, verbose=False)
         return results[0]
 
-    def results_to_dict(self, results: Results, offset: np.ndarray) -> Dict[str, List[dict]]:
+    def results_to_dict(
+        self, results: Results, offset: np.ndarray
+    ) -> Dict[str, List[dict]]:
         """Converts YOLO detection results into a standardized dictionary.
 
         This function extracts the highest-confidence detection (the first
@@ -65,20 +68,26 @@ class Detector:
             "keypoints": [],
         }
         offset_4_x_1 = np.tile(offset, 2)
-        num_results = len(results.boxes)
-        if num_results > 0:
-            results_dict["boxes"].append({
-                "conf": results.boxes.conf.numpy()[0],
-                "xyxy": results.boxes.xyxy.numpy()[0] + offset_4_x_1,
-            })
-            results_dict["keypoints"].append({
-                "conf": results.keypoints.conf.numpy()[0][0],
-                "xy": results.keypoints.xy.numpy()[0][0] + offset,
-            })
-            results_dict["keypoints"].append({
-                "conf": results.keypoints.conf.numpy()[0][1],
-                "xy": results.keypoints.xy.numpy()[0][1] + offset,
-            })
+
+        if results.boxes and len(results.boxes):
+            results_dict["boxes"].append(
+                {
+                    "conf": results.boxes.conf.cpu().numpy()[0],
+                    "xyxy": results.boxes.xyxy.cpu().numpy()[0] + offset_4_x_1,
+                }
+            )
+            results_dict["keypoints"].append(
+                {
+                    "conf": results.keypoints.conf.cpu().numpy()[0][0],
+                    "xy": results.keypoints.xy.cpu().numpy()[0][0] + offset,
+                }
+            )
+            results_dict["keypoints"].append(
+                {
+                    "conf": results.keypoints.conf.cpu().numpy()[0][1],
+                    "xy": results.keypoints.xy.cpu().numpy()[0][1] + offset,
+                }
+            )
         return results_dict
 
     @staticmethod
@@ -112,5 +121,5 @@ class Detector:
                     position=Vertex(x=kps[i]["xy"][0], y=kps[i]["xy"][1]),
                 )
                 for i in range(len(kps))
-            ]
+            ],
         )

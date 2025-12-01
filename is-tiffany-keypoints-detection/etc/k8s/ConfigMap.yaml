@@ -6,4 +6,4 @@ metadata:
 data:
   broker_uri: "amqp://guest:guest@10.10.2.211:30000"
   zipkin_uri: "http://10.10.2.211:30200"
-  conf: "0.5"
+  conf: "0.6"

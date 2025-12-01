@@ -1,45 +1,45 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: is-tiffany-pose
-  namespace: default
+    name: is-tiffany-pose
+    namespace: default
 spec:
-  selector:
-    app: is-tiffany-pose
+    selector:
+        app: is-tiffany-pose
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: is-tiffany-pose
-  namespace: default
+    name: is-tiffany-pose
+    namespace: default
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: is-tiffany-pose
-  template:
-    metadata:
-      labels:
-        app: is-tiffany-pose
-    spec:
-      containers:
-        - name: tiffany-container
-          image: miguelgrigorio27/is-tiffany-pose:latest
-          imagePullPolicy: Always
-          command: ["/bin/sh", "-c", "python /src/main.py"]
-          env:
-            - name: BROKER_URI
-              valueFrom:
-                configMapKeyRef:
-                  name: is-tiffany-pose-cm
-                  key: broker_uri
-            - name: ZIPKIN_URI
-              valueFrom:
-                configMapKeyRef:
-                  name: is-tiffany-pose-cm
-                  key: zipkin_uri
-            - name: CONF
-              valueFrom:
-                configMapKeyRef:
-                  name: is-tiffany-pose-cm
-                  key: conf
+    replicas: 1
+    selector:
+        matchLabels:
+            app: is-tiffany-pose
+    template:
+        metadata:
+            labels:
+                app: is-tiffany-pose
+        spec:
+            containers:
+                - name: tiffany-container
+                  image: miguelgrigorio27/is-tiffany-pose:latest
+                  imagePullPolicy: Always
+                  command: ["/bin/sh", "-c", "python /src/main.py"]
+                  env:
+                      - name: BROKER_URI
+                        valueFrom:
+                            configMapKeyRef:
+                                name: is-tiffany-pose-cm
+                                key: broker_uri
+                      - name: ZIPKIN_URI
+                        valueFrom:
+                            configMapKeyRef:
+                                name: is-tiffany-pose-cm
+                                key: zipkin_uri
+                      - name: CONF
+                        valueFrom:
+                            configMapKeyRef:
+                                name: is-tiffany-pose-cm
+                                key: conf

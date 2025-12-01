@@ -1,7 +1,9 @@
-from is_msgs.image_pb2 import Image
 from typing import Union
-import numpy as np
+
 import cv2
+import numpy as np
+from is_msgs.image_pb2 import Image
+
 
 def to_np(input_image: Union[np.ndarray, Image]) -> np.ndarray:
     """Converts an image to an OpenCV-compatible NumPy array.
@@ -21,7 +23,7 @@ def to_np(input_image: Union[np.ndarray, Image]) -> np.ndarray:
     """
     if isinstance(input_image, np.ndarray):
         return input_image
-        
+
     if isinstance(input_image, Image):
         buffer = np.frombuffer(input_image.data, dtype=np.uint8)
         output_image = cv2.imdecode(buffer, flags=cv2.IMREAD_COLOR)
@@ -31,5 +33,5 @@ def to_np(input_image: Union[np.ndarray, Image]) -> np.ndarray:
         if len(output_image.shape) == 2:
             output_image = cv2.cvtColor(output_image, cv2.COLOR_GRAY2BGR)
         return output_image
-        
+
     return np.array([], dtype=np.uint8)

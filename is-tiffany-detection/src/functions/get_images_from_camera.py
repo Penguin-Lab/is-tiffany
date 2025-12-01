@@ -1,14 +1,19 @@
-from opencensus.ext.zipkin.trace_exporter import ZipkinExporter
-from is_wire.core import Tracer, Message
-from opencensus.trace.span import Span
-from is_msgs.image_pb2 import Image
-from classes import StreamChannel
-from typing import Tuple
-from .to_np import to_np
-import numpy as np
-import time
+from typing import Callable
 
-def get_images_from_camera(channel_camera: StreamChannel, exporter: ZipkinExporter, end_time: float) -> Tuple[np.ndarray, Tracer, Span]:
+import numpy as np
+from classes import StreamChannel
+from is_msgs.image_pb2 import Image
+from is_wire.core import Tracer
+from opencensus.ext.zipkin.trace_exporter import ZipkinExporter
+
+from .to_np import to_np
+
+
+def get_images_from_camera(
+    channel_camera: StreamChannel,
+    exporter: ZipkinExporter,
+    fn_check_time: Callable[[], bool],
+):
     """Consumes the most recent image from a channel and prepares distributed tracing.
 
     Args:
@@ -17,19 +22,20 @@ def get_images_from_camera(channel_camera: StreamChannel, exporter: ZipkinExport
         end_time (float): The time at which the function should stop trying to get images.
 
     Returns:
-        Tuple[np.ndarray, Tracer, Span]: The image as a NumPy array, the Tracer object, and the Span.
+        image, tracer, span: The image as a NumPy array, the Tracer object, and the Span.
     """
-    while time.time() < end_time:
-        message: Message = channel_camera.consume_last()
-        
-        if isinstance(message, bool):
+    while fn_check_time():
+        message = channel_camera.consume_last()
+
+        if isinstance(message, bool) or isinstance(message, tuple):
             continue
+
         tracer: Tracer = Tracer(
-            exporter=exporter,
-            span_context=message.extract_tracing()
+            exporter=exporter, span_context=message.extract_tracing()
         )
-        span: Span = tracer.start_span(name="tiffany_detection")
+        span = tracer.start_span(name="tiffany_detection")
         with tracer.span(name="get_and_unpack_image_from_camera"):
             image_proto = message.unpack(Image)
             image_np = to_np(image_proto)
             return image_np, tracer, span
+    return np.ndarray(0), Tracer(), Tracer().start_span()

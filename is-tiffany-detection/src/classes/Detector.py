@@ -1,10 +1,12 @@
-from is_msgs.image_pb2 import ObjectAnnotation, BoundingPoly, Vertex
-from ultralytics.engine.results import Results
-from typing import List, Dict, Any
-from ultralytics import YOLO
-import numpy as np
+from typing import Any, Dict, List
 
-class Detector():
+import numpy as np
+from is_msgs.image_pb2 import BoundingPoly, ObjectAnnotation, Vertex
+from ultralytics import YOLO
+from ultralytics.engine.results import Results
+
+
+class Detector:
     """Encapsulates the YOLO model for object detection.
 
     This class loads a detection model, performs inference on images,
@@ -34,7 +36,7 @@ class Detector():
 
         results = self.model.predict(source=img, imgsz=640, verbose=False)
         return results[0]
-    
+
     def results_to_dict(self, results: Results) -> Dict[str, List[dict]]:
         """Converts the YOLO detection result into a dictionary.
 
@@ -52,11 +54,13 @@ class Detector():
         results_dict = {
             "boxes": [],
         }
-        if len(results.boxes) > 0:
-            results_dict["boxes"].append({
-                "conf": results.boxes.conf.cpu().numpy()[0],
-                "xyxy": results.boxes.xyxy.cpu().numpy()[0],
-            })
+        if results.boxes and len(results.boxes) > 0:
+            results_dict["boxes"].append(
+                {
+                    "conf": results.boxes.conf.cpu().numpy()[0],
+                    "xyxy": results.boxes.xyxy.cpu().numpy()[0],
+                }
+            )
         return results_dict
 
     @staticmethod

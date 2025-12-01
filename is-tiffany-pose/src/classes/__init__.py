@@ -1,4 +1,4 @@
 from .Connection import Connection
 from .StreamChannel import StreamChannel
-from .AngleHistory import AngleHistory
 from .Threading import Threading
+from .KalmanFilter2D import KalmanFilter2D

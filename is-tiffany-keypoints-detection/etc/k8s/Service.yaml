@@ -1,54 +1,64 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: is-tiffany-kp-detector-headless
-  namespace: default
+    name: is-tiffany-kp-detector-headless
+    namespace: default
 spec:
-  clusterIP: None
-  selector:
-    app: is-tiffany-kp-detector
+    clusterIP: None
+    selector:
+        app: is-tiffany-kp-detector
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: is-tiffany-kp-detector
-  namespace: default
+    name: is-tiffany-kp-detector
+    namespace: default
 spec:
-  serviceName: "is-tiffany-kp-detector-headless"
-  replicas: 4
-  selector:
-    matchLabels:
-      app: is-tiffany-kp-detector
-  template:
-    metadata:
-      labels:
-        app: is-tiffany-kp-detector
-    spec:
-#      imagePullSecrets:
-#        - name: formigas
-      containers:
-        - name: tiffany-container
-          image: miguelgrigorio27/is-tiffany-keypoints-detection:latest
-          imagePullPolicy: Always
-          command: ["/bin/sh", "-c"]
-          args:
-            - >
-              ORDINAL_ID=$(echo $HOSTNAME | rev | cut -d'-' -f1 | rev);
-              export CAMERA_ID=$((ORDINAL_ID + 1));
-              python main.py
-          env:
-          - name: BROKER_URI
-            valueFrom:
-              configMapKeyRef:
-                name: is-tiffany-kp-detector-cm
-                key: broker_uri
-          - name: ZIPKIN_URI
-            valueFrom:
-              configMapKeyRef:
-                name: is-tiffany-kp-detector-cm
-                key: zipkin_uri
-          - name: CONF
-            valueFrom:
-              configMapKeyRef:
-                name: is-tiffany-kp-detector-cm
-                key: conf
+    serviceName: "is-tiffany-kp-detector-headless"
+    replicas: 4
+    selector:
+        matchLabels:
+            app: is-tiffany-kp-detector
+    template:
+        metadata:
+            labels:
+                app: is-tiffany-kp-detector
+        spec:
+            #      imagePullSecrets:
+            #        - name: formigas
+            containers:
+                - name: tiffany-container
+                  image: miguelgrigorio27/is-tiffany-keypoints-detection:latest
+                  imagePullPolicy: Always
+                  command: ["/bin/sh", "-c"]
+                  args:
+                      - >
+                          ORDINAL_ID=$(echo $HOSTNAME | rev | cut -d'-' -f1 | rev);
+                          export CAMERA_ID=$((ORDINAL_ID + 1));
+                          python main.py
+                  env:
+                      - name: NVIDIA_VISIBLE_DEVICES
+                        value: all
+                      - name: BROKER_URI
+                        valueFrom:
+                            configMapKeyRef:
+                                name: is-tiffany-detector-cm
+                                key: broker_uri
+                      - name: ZIPKIN_URI
+                        valueFrom:
+                            configMapKeyRef:
+                                name: is-tiffany-detector-cm
+                                key: zipkin_uri
+                      - name: MODEL_PATH
+                        valueFrom:
+                            configMapKeyRef:
+                                name: is-tiffany-detector-cm
+                                key: model_path
+                      - name: CONF
+                        valueFrom:
+                            configMapKeyRef:
+                                name: is-tiffany-kp-detector-cm
+                                key: conf
+                  resources:
+                      limits:
+                          aliyun.com/gpu-mem: "600"
