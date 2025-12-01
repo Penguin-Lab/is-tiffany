@@ -1,8 +1,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-    name: is-tiffany-detector-cm
-    namespace: default
+  name: is-tiffany-detector-cm
+  namespace: default
 data:
-    broker_uri: "amqp://guest:guest@10.10.2.211:30000"
-    zipkin_uri: "http://10.10.2.211:30200"
+  broker_uri: "amqp://guest:guest@10.10.2.211:30000"
+  zipkin_uri: "http://10.10.2.211:30200"

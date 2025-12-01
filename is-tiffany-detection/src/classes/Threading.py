@@ -6,9 +6,7 @@ import cv2
 import numpy as np
 from amqp.exceptions import UnexpectedFrame
 from functions import get_images_from_camera, to_image
-from google.protobuf import json_format
 from google.protobuf.duration_pb2 import Duration
-from google.protobuf.struct_pb2 import Struct
 from is_msgs.image_pb2 import ObjectAnnotations, Resolution
 from is_wire.core import Message, Status, StatusCode, Subscription
 from opencensus.trace.blank_span import BlankSpan
@@ -53,6 +51,7 @@ class Threading:
         Handles connection errors by attempting to reset when needed.
         """
         self.detection_event.set()
+
         def _init_channels():
             channel_stream = StreamChannel(self.connection.broker_uri)
             channel_camera = StreamChannel(self.connection.broker_uri)
@@ -61,25 +60,20 @@ class Threading:
             )
             return channel_stream, channel_camera
 
-        def _check_time() -> bool:
-            with self.lock
-                end_time = self._end_time
-            return time.time() < end_time
-
         channel_stream, channel_camera = _init_channels()
         exporter = self.connection.exporter
 
         self.log.info("Detection started.")
-
-        while _check_time():
+        last_end_time = self._end_time
+        while time.time() < last_end_time:
+            last_end_time = self._end_time
             try:
                 img, tracer, span = get_images_from_camera(
-                    channel_camera, exporter, _check_time
+                    channel_camera, exporter, last_end_time
                 )
-                timestamp = time.time()
             except KeyboardInterrupt:
                 self.log.error("Shutting down...")
-                raise
+                exit()
             except (ConnectionResetError, IndexError, UnexpectedFrame, TypeError):
                 # self.log.warn("Skipping frame due to temporary issue.")
                 continue
@@ -119,6 +113,7 @@ class Threading:
 
         self.detection_event.clear()
         self.stream_event.clear()
+        self._end_time = 0.0
         self.log.info("Detection finished.")
         channel_camera.close()
         channel_stream.close()
@@ -211,14 +206,25 @@ class Threading:
         Returns:
             Status: `OK` if detection started, or `ALREADY_EXISTS` if already running.
         """
-        with self.lock
-            self._end_time += seconds.seconds
+        self._end_time += seconds.seconds
 
         if not self.detection_event.is_set():
             threading.Thread(
                 target=self.detection_thread,
                 name="DetectionThread",
             ).start()
-            return Status(StatusCode.OK, f"Detection started with a duration of {seconds.seconds / 60:.2f} minutes.")
+            return Status(
+                StatusCode.OK,
+                f"Detection started with a duration of {seconds.seconds / 60:.2f} minutes.",
+            )
         else:
-            return Status(StatusCode.ALREADY_EXISTS, f"Detection already running. Added +{seconds.seconds / 60:.2f} minutes.")
+            return Status(
+                StatusCode.ALREADY_EXISTS,
+                f"Detection already running. Added +{seconds.seconds / 60:.2f} minutes.",
+            )
+
+    def stop(self, ctx) -> Status:
+        self.stream_event.clear()
+        self.detection_event.clear()
+        self._end_time = 0.0
+        return Status(StatusCode.OK, "Stopping detection.")

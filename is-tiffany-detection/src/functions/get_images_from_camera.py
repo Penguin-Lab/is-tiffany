@@ -1,4 +1,4 @@
-from typing import Callable
+import time
 
 import numpy as np
 from classes import StreamChannel
@@ -12,7 +12,7 @@ from .to_np import to_np
 def get_images_from_camera(
     channel_camera: StreamChannel,
     exporter: ZipkinExporter,
-    fn_check_time: Callable[[], bool],
+    end_time: float,
 ):
     """Consumes the most recent image from a channel and prepares distributed tracing.
 
@@ -24,8 +24,8 @@ def get_images_from_camera(
     Returns:
         image, tracer, span: The image as a NumPy array, the Tracer object, and the Span.
     """
-    while fn_check_time():
-        message = channel_camera.consume_last()
+    while time.time() < end_time:
+        message = channel_camera.consume_last(timeout=1.0)
 
         if isinstance(message, bool) or isinstance(message, tuple):
             continue

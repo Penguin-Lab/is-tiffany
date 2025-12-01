@@ -1,54 +1,54 @@
 apiVersion: v1
 kind: Service
 metadata:
-    name: is-tiffany-detector-headless
-    namespace: default
+  name: is-tiffany-detector-headless
+  namespace: default
 spec:
-    clusterIP: None
-    selector:
-        app: is-tiffany-detector
+  clusterIP: None
+  selector:
+    app: is-tiffany-detector
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-    name: is-tiffany-detector
-    namespace: default
+  name: is-tiffany-detector
+  namespace: default
 spec:
-    serviceName: "is-tiffany-detector-headless"
-    replicas: 4
-    selector:
-        matchLabels:
-            app: is-tiffany-detector
-    template:
-        metadata:
-            labels:
-                app: is-tiffany-detector
-        spec:
-            #      imagePullSecrets:
-            #        - name: formigas
-            containers:
-                - name: tiffany-container
-                  image: miguelgrigorio27/is-tiffany-detection:latest
-                  imagePullPolicy: Always
-                  command: ["/bin/sh", "-c"]
-                  args:
-                      - >
-                          ORDINAL_ID=$(echo $HOSTNAME | rev | cut -d'-' -f1 | rev);
-                          export CAMERA_ID=$((ORDINAL_ID + 1));
-                          python main.py
-                  env:
-                      - name: NVIDIA_VISIBLE_DEVICES
-                        value: all
-                      - name: BROKER_URI
-                        valueFrom:
-                            configMapKeyRef:
-                                name: is-tiffany-detector-cm
-                                key: broker_uri
-                      - name: ZIPKIN_URI
-                        valueFrom:
-                            configMapKeyRef:
-                                name: is-tiffany-detector-cm
-                                key: zipkin_uri
-                  resources:
-                      limits:
-                          aliyun.com/gpu-mem: "700"
+  serviceName: "is-tiffany-detector-headless"
+  replicas: 4
+  selector:
+    matchLabels:
+      app: is-tiffany-detector
+  template:
+    metadata:
+      labels:
+        app: is-tiffany-detector
+    spec:
+      #      imagePullSecrets:
+      #        - name: formigas
+      containers:
+        - name: tiffany-container
+          image: miguelgrigorio27/is-tiffany-detection:latest
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              ORDINAL_ID=$(echo $HOSTNAME | rev | cut -d'-' -f1 | rev);
+              export CAMERA_ID=$((ORDINAL_ID + 1));
+              python main.py
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: BROKER_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: is-tiffany-detector-cm
+                  key: broker_uri
+            - name: ZIPKIN_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: is-tiffany-detector-cm
+                  key: zipkin_uri
+          resources:
+            limits:
+              aliyun.com/gpu-mem: "700"
