@@ -14,4 +14,4 @@ RUN pip install --upgrade pip && \
 COPY src/ .
 
 CMD ["python", "main.py"]
-# docker buildx build --platform linux/amd64 -f etc/docker/Dockerfile -t miguelgrigorio27/is-tiffany-detection:latest .
+# docker buildx build --platform linux/amd64 -f etc/docker/Dockerfile -t miguelgrigorio27/is-tiffany-detection:latest . --push

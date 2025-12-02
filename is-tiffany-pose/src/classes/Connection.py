@@ -44,7 +44,6 @@ class Connection:
         self.zipkin_uri = zipkin_uri
         self.service_name = service_name
 
-    @staticmethod
     def create_exporter(self, service_name: str, uri: str, log: Logger):
         """
         Creates and configures a ZipkinExporter for distributed tracing.

@@ -1,16 +1,13 @@
+import queue
 import threading
 import time
-from typing import Union
 
 import cv2
 import numpy as np
-from amqp.exceptions import UnexpectedFrame
 from functions import get_images_from_camera, to_image
 from google.protobuf.duration_pb2 import Duration
 from is_msgs.image_pb2 import ObjectAnnotations, Resolution
 from is_wire.core import Message, Status, StatusCode, Subscription
-from opencensus.trace.blank_span import BlankSpan
-from opencensus.trace.span import Span
 
 from .Connection import Connection
 from .Detector import Detector
@@ -18,217 +15,164 @@ from .StreamChannel import StreamChannel
 
 
 class Threading:
-    """Manages background threads for object detection and streaming results.
-
-    This class encapsulates logic to run two main threads:
-
-    1. A continuous detection thread that consumes images and runs the model.
-    2. An on-demand streaming thread that annotates images with detections and publishes them for a specified duration.
-
-    A lock is used to ensure thread-safe access to the last detection data.
-    """
-
     def __init__(self, connection: Connection, detector: Detector):
-        """Initializes the threading manager.
-
-        Args:
-            connection (Connection): Manages the broker connection.
-            detector (Detector): Responsible for running predictions.
-        """
         self.connection = connection
         self.log = connection.log
         self.detector = detector
         self._end_time = 0.0
-        self.stream_event = threading.Event()
+
         self.detection_event = threading.Event()
+        self.stream_active = False
+
+        self.vis_queue = queue.Queue(maxsize=1)
+
+        self.vis_thread = threading.Thread(
+            target=self._vis_worker, name="VisWorker", daemon=True
+        )
+        self.vis_thread.start()
 
     def detection_thread(self) -> None:
-        """Runs for a defined duration to fetch images and perform detection.
-
-        Designed to run a thread in the background. It consumes images
-        from the camera feed, runs detection, and stores the latest results safely.
-        Handles connection errors by attempting to reset when needed.
-        """
         self.detection_event.set()
 
-        def _init_channels():
-            channel_stream = StreamChannel(self.connection.broker_uri)
-            channel_camera = StreamChannel(self.connection.broker_uri)
-            Subscription(channel_camera).subscribe(
-                f"CameraGateway.{self.connection.camera_id}.Frame"
-            )
-            self.connection.create_exporter(
-                self, self.connection.service_name, self.connection.zipkin_uri, self.log
-                )
-            return channel_stream, channel_camera
+        channel_stream = StreamChannel(self.connection.broker_uri)
+        channel_camera = StreamChannel(self.connection.broker_uri)
 
-        channel_stream, channel_camera = _init_channels()
+        Subscription(channel_camera).subscribe(
+            f"CameraGateway.{self.connection.camera_id}.Frame"
+        )
+
+        self.connection.create_exporter(
+            self, self.connection.service_name, self.connection.zipkin_uri, self.log
+        )
 
         self.log.info("Detection started.")
-        last_end_time = self._end_time
-        while time.time() < last_end_time:
-            last_end_time = self._end_time
+
+        while time.time() < self._end_time:
             try:
-                img, tracer, span = get_images_from_camera(
-                    channel_camera, self.connection.exporter, last_end_time
+                ret = get_images_from_camera(
+                    channel_camera, self.connection.exporter, self._end_time
                 )
-            except KeyboardInterrupt:
-                self.log.error("Shutting down...")
-                exit()
-            except (ConnectionResetError, IndexError, UnexpectedFrame, TypeError):
-                # self.log.warn("Skipping frame due to temporary issue.")
-                continue
-            except OSError:
-                self.log.warn("Resetting server connection due to OSError...")
-                time.sleep(2.5)
-                channel_stream, channel_camera = _init_channels()
-                continue
+                if not ret:
+                    continue
+                img, tracer, span = ret
+
             except Exception:
                 continue
 
-            if img.size == 0:
+            if img is None or img.size == 0:
                 continue
 
-            with tracer.span(name="predict_tiffany"):
+            with tracer.span(name="predict_tiffany") as s:
                 results = self.detector.predict(img)
-                result_dict = self.detector.results_to_dict(results)
+                obj_annot = self.detector.to_annotation(results)
 
-            with tracer.span(name="pack_and_publish_detection"):
-                if len(result_dict["boxes"]):
-                    obj = ObjectAnnotations(
-                        objects=[self.detector.dict_to_obj_annot(result_dict)],
-                        resolution=Resolution(height=720, width=1280),
-                        frame_id=self.connection.camera_id,
-                    )
-                    msg = Message()
-                    msg.inject_tracing(span)
-                    msg.topic = f"Tiffany.{self.connection.camera_id}.Detection"
-                    msg.pack(obj)
-                    channel_stream.publish(msg)
+            if obj_annot:
+                obj = ObjectAnnotations(
+                    objects=[obj_annot],
+                    resolution=Resolution(height=720, width=1280),
+                    frame_id=self.connection.camera_id,
+                )
 
-                    if self.stream_event.is_set():
-                        threading.Thread(
-                            target=self.stream_detection,
-                            name="StreamDetection",
-                            args=(channel_stream, obj, img, span),
-                        ).start()
+                msg = Message()
+                msg.pack(obj)
+                msg.topic = f"Tiffany.{self.connection.camera_id}.Detection"
+                msg.inject_tracing(span)
+                channel_stream.publish(msg)
+
+                if self.stream_active:
+                    try:
+                        self.vis_queue.put_nowait(
+                            {
+                                "img": img,
+                                "annot": obj,
+                                "span_ctx": span,
+                            }
+                        )
+                    except queue.Full:
+                        pass
 
             tracer.end_span()
 
         self.detection_event.clear()
-        self.stream_event.clear()
-        self._end_time = 0.0
-        self.log.info("Detection finished.")
+        self.stream_active = False
         channel_camera.close()
         channel_stream.close()
+        self.log.info("Detection finished.")
 
-    def stream_detection(
-        self,
-        channel: StreamChannel,
-        last_detection: ObjectAnnotations,
-        last_image: np.ndarray,
-        last_span: Union[Span, BlankSpan],
-    ) -> None:
-        """Draws detections on images and streams.
+    def _vis_worker(self):
+        """Worker persistente que desenha e envia imagens."""
+        channel = StreamChannel(self.connection.broker_uri)
 
-        Args:
-            channel (StreamChannel): Channel to publish annotated images.
-            last_detection (ObjectAnnotations): The detection results to draw.
-            last_image (np.ndarray): The image to annotate.
-            last_span (Span | BlankSpan): The tracing span to attach.
-        """
-        det = last_detection
-        img = last_image
-        span = last_span
+        while True:
+            try:
+                item = self.vis_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
 
-        if img is None:
-            return
+            img = item["img"]
+            annot = item["annot"]
+            span = item["span_ctx"]
 
-        img_to_draw = img.copy()
+            img_drawn = self._draw(img, annot)
 
-        if det.objects:
-            box = det.objects[0].region.vertices
-            bb1 = (int(box[0].x), int(box[0].y))
-            bb2 = (int(box[1].x), int(box[1].y))
+            jpeg_img = to_image(img_drawn, compression_level=0.8)
 
-            cv2.rectangle(img_to_draw, bb1, bb2, (255, 255, 0), 2)
-            cv2.putText(
-                img_to_draw,
-                f"Score: {det.objects[0].score:.2f}",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 0),
-                2,
-            )
-
-        try:
             msg = Message()
-            msg.inject_tracing(span)
+            msg.pack(jpeg_img)
             msg.topic = f"Tiffany.{self.connection.camera_id}.Frame"
-            msg.pack(to_image(img_to_draw, compression_level=0.8))
-            channel.publish(msg)
-        except ConnectionResetError:
-            return
-        except OSError:
-            return
-        except Exception as e:
-            self.log.error(f"Unexpected error while publishing: {e}")
-            return
+            msg.inject_tracing(span)
+            try:
+                channel.publish(msg)
+            except Exception:
+                try:
+                    channel = StreamChannel(self.connection.broker_uri)
+                except Exception:
+                    time.sleep(1)
 
-    def init_stream(self, seconds: Duration, ctx) -> Status:
-        """Starts the detection streaming if not already running.
-
-        Exposed as an RPC method. Checks if a stream is active using an event flag,
-        and active a flag if none is running.
-
-        Args:
-            seconds (Duration): Desired duration of the stream in minutes.
-            ctx: Service context provided by is-wire RPC.
-
-        Returns:
-            Status: `OK` if the stream started, or `ALREADY_EXISTS` if one is already running.
-        """
-        if not self.detection_event.is_set():
-            self.init_detection(seconds, ctx)
-        if not self.stream_event.is_set():
-            self.stream_event.set()
-            return Status(StatusCode.OK, "Stream started")
-        else:
-            return Status(StatusCode.ALREADY_EXISTS, "Stream already running")
+    def _draw(self, img, annot):
+        """Helper para limpar a classe."""
+        img_c = img.copy()
+        if annot.objects:
+            obj = annot.objects[0]
+            if obj.region and len(obj.region.vertices) >= 2:
+                v = obj.region.vertices
+                cv2.rectangle(
+                    img_c,
+                    (int(v[0].x), int(v[0].y)),
+                    (int(v[1].x), int(v[1].y)),
+                    (255, 255, 0),
+                    2,
+                )
+                cv2.putText(
+                    img_c,
+                    f"Score: {obj.score:.2f}",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 255, 0),
+                    2,
+                )
+        return img_c
 
     def init_detection(self, seconds: Duration, ctx) -> Status:
-        """Starts the detection thread if not already running.
-
-        Exposed as an RPC method. Checks if the detection thread is active using
-        an event flag, and starts a new `DetectionThread` if none is running.
-
-        Args:
-            seconds (Duration): Desired duration of detection.
-            ctx: Service context provided by is-wire RPC.
-
-        Returns:
-            Status: `OK` if detection started, or `ALREADY_EXISTS` if already running.
-        """
-        self._end_time = time.time() + seconds.seconds if self._end_time < time.time() else self._end_time + seconds.seconds
+        self._end_time = max(self._end_time, time.time() + seconds.seconds)
 
         if not self.detection_event.is_set():
-            threading.Thread(
-                target=self.detection_thread,
-                name="DetectionThread",
-            ).start()
-            return Status(
-                StatusCode.OK,
-                f"Detection started with a duration of {seconds.seconds / 60:.2f} minutes.",
-            )
-        else:
-            return Status(
-                StatusCode.ALREADY_EXISTS,
-                f"Detection already running. Added +{seconds.seconds / 60:.2f} minutes.",
-            )
+            t = threading.Thread(target=self.detection_thread, name="DetectionThread")
+            t.start()
+            return Status(StatusCode.OK, "Started")
+        return Status(StatusCode.OK, "Extended")
+
+    def init_stream(self, seconds: Duration, ctx) -> Status:
+        if not self.detection_event.is_set():
+            self.init_detection(seconds, ctx)
+
+        if not self.stream_active:
+            self.stream_active = True
+            return Status(StatusCode.OK, "Stream Started")
+        return Status(StatusCode.ALREADY_EXISTS, "Stream Already Active")
 
     def stop(self, *args) -> Status:
-        self.stream_event.clear()
-        self.detection_event.clear()
+        self.stream_active = False
         self._end_time = 0.0
-        return Status(StatusCode.OK, "Stopping detection.")
+        return Status(StatusCode.OK, "Stopping")

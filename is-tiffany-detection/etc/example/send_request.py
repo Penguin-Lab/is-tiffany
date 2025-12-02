@@ -12,7 +12,7 @@ channel = Channel("amqp://guest:guest@10.10.2.211:30000")
 subscription = Subscription(channel)
 
 # Start detection stream
-camera_id = 4
+camera_id = 1
 request = Message(content=Duration(seconds=3600), reply_to=subscription)
 channel.publish(request, topic=f"Tiffany.Detection.{camera_id}.StartStream")
 

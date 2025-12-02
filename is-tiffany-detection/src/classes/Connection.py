@@ -47,7 +47,7 @@ class Connection:
         self.log.info(
             f"Successfully connected to broker at {broker_uri} for camera ID {camera_id}"
         )
-
+        self.exporter = None
         self.create_exporter(self, service_name, zipkin_uri, self.log)
         self.provider.add_interceptor(TracingInterceptor(self.exporter))
         self.log.info(
