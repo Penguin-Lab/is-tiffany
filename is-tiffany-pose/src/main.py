@@ -4,7 +4,6 @@ import numpy as np
 from classes import Connection, Threading
 from google.protobuf.duration_pb2 import Duration
 from google.protobuf.empty_pb2 import Empty
-from is_msgs.common_pb2 import Pose
 from is_wire.core import Status
 
 
@@ -25,7 +24,7 @@ def main() -> None:
     }
     threading_instance = Threading(c, parameters)
     provider.delegate(
-        topic="Tiffany.GetPose",
+        topic="Tiffany.Stop",
         function=threading_instance.stop,
         request_type=Empty,
         reply_type=Status,

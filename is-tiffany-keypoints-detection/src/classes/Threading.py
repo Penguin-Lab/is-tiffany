@@ -241,29 +241,26 @@ class Threading:
             Status: `OK` if detection started, or `ALREADY_EXISTS` if already running.
         """
         self._end_time = time.time() + seconds.seconds if self._end_time < time.time() else self._end_time + seconds.seconds
-        if not self.detection_event.is_set():
-            channel = Channel(self.connection.broker_uri)
-            subscription = Subscription(channel)
-            request = Message(content=seconds, reply_to=subscription)
-            channel.publish(
-                request,
-                topic=f"Tiffany.Detection.{self.connection.camera_id}.StartDetection",
-            )
-            try:
-                reply = channel.consume(timeout=5.0)
-            except socket.timeout:
-                return Status(
-                    StatusCode.DEADLINE_EXCEEDED, "No response from detection service"
-                )
-            if (
-                reply.status.code == StatusCode.OK
-                or reply.status.code == StatusCode.ALREADY_EXISTS
-            ):
-                threading.Thread(
-                    target=self.detection_thread,
-                    name="DetectionThread"
-                ).start()
+        channel = Channel(self.connection.broker_uri)
+        subscription = Subscription(channel)
+        request = Message(content=seconds, reply_to=subscription)
+        channel.publish(
+            request,
+            topic=f"Tiffany.Detection.{self.connection.camera_id}.StartDetection",
+        )
+        try:
+            reply = channel.consume(timeout=5.0)
             channel.close()
+        except socket.timeout:
+            return Status(
+                StatusCode.DEADLINE_EXCEEDED, "No response from detection service"
+            )
+
+        if not self.detection_event.is_set() and (reply.status.code == StatusCode.OK or reply.status.code == StatusCode.ALREADY_EXISTS):
+            threading.Thread(
+                target=self.detection_thread,
+                name="DetectionThread"
+            ).start()
             return Status(
                 StatusCode.OK,
                 f"Detection started with a duration of {seconds.seconds / 60:.2f} minutes.",

@@ -16,7 +16,7 @@ camera_id = 3
 for id in range(1, 5):
     request = Message(content=Duration(seconds=3600), reply_to=subscription)
     channel.publish(request, topic=f"Tiffany.Keypoints.{id}.StartStream")
-Subscription(channel).subscribe("Tiffany.Keypoints..Detection")
+Subscription(channel).subscribe("Tiffany.Keypoints.1.Detection")
 while True:
     msg = channel.consume()
     detection = msg.unpack(ObjectAnnotations)

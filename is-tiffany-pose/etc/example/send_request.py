@@ -11,27 +11,26 @@ from is_wire.core import Channel, Message, Subscription
 # Connect to broker
 channel = Channel("amqp://guest:guest@10.10.2.211:30000")
 subscription = Subscription(channel)
+subscription.subscribe("Tiffany.Pose")
 
 # Start detections
 request = Message(content=Duration(seconds=3600), reply_to=subscription)
-channel.publish(request, topic="Tiffany.StartDetections")
+channel.publish(request, topic="Tiffany.StartDetections2")
 
 try:
-    reply = channel.consume(timeout=5.0)
+    reply = channel.consume(timeout=0.0)
     print("[OK] Started. Status:", reply.status)
 except socket.timeout:
     print("[WARN] No reply for StartDetections")
-    exit()
+    #exit()
 
 # Wait 30 seconds before requesting detections
-time.sleep(30)
-
-struct = Struct()
-struct.fields["timestamp"].bool_value = True
-struct.fields["num_cameras"].bool_value = True
-request = Message(reply_to=subscription)
-request.pack(struct)
-
+time.sleep(0)
+while True:
+    last_mama = time.time()
+    msg = channel.consume()
+    print(msg.unpack(Pose))
+    print(round(time.time() - last_mama, 2))
 # Collect 20 successful measurements and save to a file (JSON lines)
 output_file = "measurements.jsonl"
 collected = 0

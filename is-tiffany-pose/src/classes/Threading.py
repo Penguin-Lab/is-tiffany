@@ -10,7 +10,7 @@ from google.protobuf.struct_pb2 import Struct
 from is_msgs.common_pb2 import Orientation, Pose, Position
 from is_msgs.image_pb2 import ObjectAnnotations
 from is_wire.core import Channel, Message, Status, StatusCode, Subscription
-
+from .StreamChannel import StreamChannel
 from functions import angle, point2world
 
 from .Connection import Connection
@@ -61,12 +61,13 @@ class Threading:
             seconds (Duration): Duration in seconds to fetch keypoints.
             camera_id (int): ID of the camera to fetch keypoints from.
         """
-
+        if camera_id == 4:
+            return
         self.keypoints_event[camera_id].set()
         kf_center = KalmanFilter2D(dt=0.1, process_var=1e-5, meas_var=4.0)
         kf_front = KalmanFilter2D(dt=0.1, process_var=1e-5, meas_var=4.0)
 
-        channel = Channel(self.connection.broker_uri)
+        channel = StreamChannel(self.connection.broker_uri)
         Subscription(channel).subscribe(f"Tiffany.{camera_id}.Keypoints")
 
         last_keypoints_time = 0.0
@@ -74,7 +75,7 @@ class Threading:
         last_end_time = self._end_time
         while time.time() < last_end_time:
             last_end_time = self._end_time
-            if time.time() - last_keypoints_time > 1.0:
+            if time.time() - last_keypoints_time > 0.1:
                 kf_center = KalmanFilter2D(
                     dt=0.1,
                     process_var=1e-5,
@@ -85,11 +86,12 @@ class Threading:
                     process_var=1e-5,
                     meas_var=4.0,
                 )
+                self.set_last_keypoints(None, camera_id)
                 last_keypoints_time = time.time()
                 continue
 
             try:
-                reply = channel.consume_last(1.0)
+                reply = channel.consume_last(0.1)
                 if not reply:
                     continue
 
@@ -136,7 +138,7 @@ class Threading:
                 kp.objects[0].keypoints[1].position.x = int(front_filtered[0])
                 kp.objects[0].keypoints[1].position.y = int(front_filtered[1])
 
-                self.set_last_keypoints(kp, camera_id, last_keypoints_time)
+                self.set_last_keypoints(kp, camera_id)
                 self.new_keypoints_event.set()
             except Exception as exc:
                 self.log.debug(
@@ -232,13 +234,12 @@ class Threading:
                 position=Position(x=Xw_center[0], y=Xw_center[1], z=Xw_center[2]),
                 orientation=Orientation(yaw=yaw_deg, pitch=pitch_deg),
             )
+
             msg = Message()
-            #msg.inject_tracing(span)
-            msg.topic = f"Tiffany.{self.connection.camera_id}.Pose"
+            msg.topic = f"Tiffany.Pose"
             msg.pack(pose)
             channel.publish(msg)
-            self.log.info(f"ms: {int((time.time() - timestamp) * 1000)}")
-            self._last_keypoints = {}
+
             self.new_keypoints_event.clear()
         self.log.info("Pose calculation finished.")
         self.pose_event.clear()
@@ -258,14 +259,17 @@ class Threading:
                     did not respond.
         """
         self._end_time = time.time() + seconds.seconds if self._end_time < time.time() else self._end_time + seconds.seconds
-        if not self.detection_event.is_set():
+        events = [boolean.is_set() for boolean in self.keypoints_event.values()]
+
+        if not all(events):
             channel = Channel(self.connection.broker_uri)
             subscription = Subscription(channel)
             request = Message(content=seconds, reply_to=subscription)
-            channel.publish(
-                request,
-                topic=f"Tiffany.Keypoints.{self.connection.camera_id}.StartDetection",
-            )
+            for cam_id in self.parameters.keys():
+                channel.publish(
+                    request,
+                    topic=f"Tiffany.Keypoints.{cam_id}.StartDetection",
+                )
             try:
                 reply = channel.consume(timeout=5.0)
             except socket.timeout:
@@ -276,13 +280,18 @@ class Threading:
                 reply.status.code == StatusCode.OK
                 or reply.status.code == StatusCode.ALREADY_EXISTS
             ):
-                for cam_id in self.connection.parameters.keys():
+                for cam_id in self.parameters.keys():
                     if not self.keypoints_event[cam_id].is_set():
                             threading.Thread(
                                 target=self.get_keypoints_by_camera,
                                 name=f"Keypoints.{cam_id}.Thread",
-                                args=(cam_id),
+                                args=(cam_id,),
                             ).start()
+                threading.Thread(
+                    target=self.define_pose,
+                    name="PoseThread",
+                    args=(),
+                ).start()
             channel.close()
             return Status(
                 StatusCode.OK,
@@ -295,7 +304,9 @@ class Threading:
             )
     
     def stop(self, *args) -> Status:
-            self.stream_event.clear()
-            self.detection_event.clear()
+            self.pose_event.clear()
+            for event in self.keypoints_event.values():
+                event.clear()
+            self.new_keypoints_event.clear()
             self._end_time = 0.0
             return Status(StatusCode.OK, "Stopping detection.")
