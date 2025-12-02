@@ -14,7 +14,9 @@ from .to_np import to_np
 CONFIDENCE = float(os.environ.get("confidence", 0.5))
 
 
-def get_images_from_camera(connection: Connection, end_time: float, channel_camera):
+def get_images_from_camera(
+        channel_camera, channel_detection, exporter, end_time: float
+    ):
     """
     Obtains the cropped image (ROI) from the camera detection.
 
@@ -30,38 +32,19 @@ def get_images_from_camera(connection: Connection, end_time: float, channel_came
             - roi_offset (np.ndarray): Coordinates (x1, y1) of the top-left corner of the ROI in the original image.
             - original_img (np.ndarray): Full original image from the camera.
     """
-    channel_detection = Channel(connection.broker_uri)
-    exporter = connection.exporter
-    camera_id = connection.camera_id
-
-    subscription = Subscription(channel_detection)
-    request = Struct()
-    request.fields["timestamp"].bool_value = True
-    msg = Message(reply_to=subscription)
-    msg.pack(request)
 
     while time.time() < end_time:
-        obj = channel_camera.consume_last()
+        obj = channel_camera.consume_last(1.0)
         if not obj:
             continue
 
         img_msg = obj.unpack(Image)
         original_img = to_np(img_msg)
 
-        try:
-            channel_detection.publish(
-                msg, topic=f"Tiffany.Detection.{camera_id}.GetDetection"
-            )
-            reply = channel_detection.consume(timeout=1.0)
-            dict_reply = json_format.MessageToDict(reply.unpack(Struct))
-            det = json_format.ParseDict(
-                dict_reply.get("detection", {}), ObjectAnnotations()
-            )
-            timestamp = dict_reply.get("timestamp", time.time())
-
-        except Exception as e:
-            print(f"[WARN] Error getting detection: {e}")
+        reply = channel_detection.consume_last(1.0)
+        if not reply:
             continue
+        det = reply.unpack(ObjectAnnotations)
 
         if det.objects:
             score: float = det.objects[0].score
@@ -78,15 +61,12 @@ def get_images_from_camera(connection: Connection, end_time: float, channel_came
             crop = original_img[y1:y2, x1:x2]
             roi_offset = np.array([x1, y1])
 
-            channel_detection.close()
-            return crop, tracer, span, roi_offset, original_img, timestamp
+            return crop, tracer, span, roi_offset, original_img
 
-    channel_detection.close()
     return (
         np.ndarray(0),
         Tracer(),
         Tracer().start_span(),
         np.ndarray(0),
         np.ndarray(0),
-        0,
     )

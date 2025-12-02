@@ -14,7 +14,7 @@ subscription = Subscription(channel)
 # Start detection stream
 camera_id = 1
 request = Message(content=Duration(seconds=3600), reply_to=subscription)
-channel.publish(request, topic=f"Tiffany.Detection.{camera_id}.StartStream")
+channel.publish(request, topic=f"Tiffany.Detection.{camera_id}.StartStream2")
 
 try:
     reply = channel.consume(timeout=5.0)
@@ -25,6 +25,12 @@ except socket.timeout:
 
 time.sleep(5)  # Wait a bit before requesting detections
 
+channel = Channel("amqp://guest:guest@10.10.2.211:30000")
+Subscription(channel).subscribe(f"Tiffany.1.Detection")
+while True:
+    msg = channel.consume()
+    detection = msg.unpack(ObjectAnnotations)
+    print("Received detection:", detection)
 # Request detection with Struct
 struct = Struct()
 struct.fields["timestamp"].bool_value = True  # Ask to include timestamp

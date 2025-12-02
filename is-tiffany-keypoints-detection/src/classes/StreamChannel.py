@@ -25,8 +25,8 @@ class StreamChannel(Channel):
         super().__init__(uri=uri, exchange=exchange)
 
     def consume_last(
-        self, return_dropped: bool = False
-    ) -> Union[Message, Tuple[Message, int]]:
+        self, timeout: Union[float, None] = None, return_dropped: bool = False
+    ) -> Union[Message, Tuple[Message, int], bool]:
         """Consumes the latest available message from the channel, discarding previous ones.
 
         This method first waits for a message and then quickly consumes
@@ -42,13 +42,12 @@ class StreamChannel(Channel):
                                                     If `return_dropped` is True,
                                                     returns a tuple containing the
                                                     message and the number of dropped messages.
-
-        Raises:
-            socket.timeout: If no message is received within the timeout period
-                            of the initial consume call.
         """
         dropped = 0
-        msg = super().consume()
+        try:
+            msg = super().consume(timeout)
+        except socket.timeout:
+            return False
         while True:
             try:
                 msg = super().consume(timeout=0.0)

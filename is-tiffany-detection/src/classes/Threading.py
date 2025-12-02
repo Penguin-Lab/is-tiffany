@@ -41,7 +41,6 @@ class Threading:
         self._end_time = 0.0
         self.stream_event = threading.Event()
         self.detection_event = threading.Event()
-        self.lock = threading.Lock()
 
     def detection_thread(self) -> None:
         """Runs for a defined duration to fetch images and perform detection.
@@ -58,10 +57,12 @@ class Threading:
             Subscription(channel_camera).subscribe(
                 f"CameraGateway.{self.connection.camera_id}.Frame"
             )
+            self.connection.create_exporter(
+                self, self.connection.service_name, self.connection.zipkin_uri, self.log
+                )
             return channel_stream, channel_camera
 
         channel_stream, channel_camera = _init_channels()
-        exporter = self.connection.exporter
 
         self.log.info("Detection started.")
         last_end_time = self._end_time
@@ -69,7 +70,7 @@ class Threading:
             last_end_time = self._end_time
             try:
                 img, tracer, span = get_images_from_camera(
-                    channel_camera, exporter, last_end_time
+                    channel_camera, self.connection.exporter, last_end_time
                 )
             except KeyboardInterrupt:
                 self.log.error("Shutting down...")
@@ -83,6 +84,9 @@ class Threading:
                 channel_stream, channel_camera = _init_channels()
                 continue
             except Exception:
+                continue
+
+            if img.size == 0:
                 continue
 
             with tracer.span(name="predict_tiffany"):
@@ -206,7 +210,7 @@ class Threading:
         Returns:
             Status: `OK` if detection started, or `ALREADY_EXISTS` if already running.
         """
-        self._end_time += seconds.seconds
+        self._end_time = time.time() + seconds.seconds if self._end_time < time.time() else self._end_time + seconds.seconds
 
         if not self.detection_event.is_set():
             threading.Thread(
@@ -223,7 +227,7 @@ class Threading:
                 f"Detection already running. Added +{seconds.seconds / 60:.2f} minutes.",
             )
 
-    def stop(self, ctx) -> Status:
+    def stop(self, *args) -> Status:
         self.stream_event.clear()
         self.detection_event.clear()
         self._end_time = 0.0

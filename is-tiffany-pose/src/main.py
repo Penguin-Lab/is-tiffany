@@ -3,7 +3,7 @@ import os
 import numpy as np
 from classes import Connection, Threading
 from google.protobuf.duration_pb2 import Duration
-from google.protobuf.struct_pb2 import Struct
+from google.protobuf.empty_pb2 import Empty
 from is_msgs.common_pb2 import Pose
 from is_wire.core import Status
 
@@ -26,9 +26,9 @@ def main() -> None:
     threading_instance = Threading(c, parameters)
     provider.delegate(
         topic="Tiffany.GetPose",
-        function=threading_instance.get_last_message,
-        request_type=Struct,
-        reply_type=(Pose, Struct),
+        function=threading_instance.stop,
+        request_type=Empty,
+        reply_type=Status,
     )
     provider.delegate(
         topic="Tiffany.StartDetections",

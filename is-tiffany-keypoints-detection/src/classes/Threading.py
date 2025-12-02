@@ -41,12 +41,11 @@ class Threading:
         self.connection = connection
         self.log = connection.log
         self.detector = detector
-        self._last_detection = (ObjectAnnotations(), 0)
+        self._end_time = 0.0
         self.stream_event = threading.Event()
         self.detection_event = threading.Event()
-        self.lock = threading.Lock()
 
-    def detection_thread(self, seconds: Duration) -> None:
+    def detection_thread(self) -> None:
         """Runs for a defined duration to fetch images and perform detection.
 
         Designed to run a thread in the background. It consumes images
@@ -55,23 +54,30 @@ class Threading:
         to reset the connection when needed.
         """
         self.detection_event.set()
-
-        channel_stream = StreamChannel(self.connection.broker_uri)
-        channel_camera = StreamChannel(self.connection.broker_uri)
-        Subscription(channel_camera).subscribe(
-            f"CameraGateway.{self.connection.camera_id}.Frame"
-        )
-
-        threading.current_thread().name = "DetectionThread"
-        start_time = time.time()
-        self.log.info(
-            f"Detection started. Duration: {seconds.seconds / 60:.2f} minutes."
-        )
-        end_time = start_time + seconds.seconds
-        while time.time() < end_time:
+        def _init_channels():
+            channel_stream = StreamChannel(self.connection.broker_uri)
+            channel_camera = StreamChannel(self.connection.broker_uri)
+            Subscription(channel_camera).subscribe(
+                f"CameraGateway.{self.connection.camera_id}.Frame"
+            )
+            Subscription(channel_stream).subscribe(
+                f"Tiffany.{self.connection.camera_id}.Detection"
+            )
+            self.connection.create_exporter(
+                self, self.connection.service_name, self.connection.zipkin_uri, self.log
+                )
+            return channel_stream, channel_camera
+        
+        channel_stream, channel_camera = _init_channels()
+        
+        self.log.info("Detection started.")
+                      
+        last_end_time = self._end_time
+        while time.time() < last_end_time:
+            last_end_time = self._end_time
             try:
-                img, tracer, span, offset, original_img, timestamp = (
-                    get_images_from_camera(self.connection, end_time, channel_camera)
+                img, tracer, span, offset, original_img = (
+                    get_images_from_camera(channel_camera, channel_stream, self.connection.exporter, last_end_time)
                 )
             except KeyboardInterrupt:
                 self.log.error("Shutting down...")
@@ -84,10 +90,10 @@ class Threading:
             except OSError:
                 self.log.warn("Restarting server connection due to OSError...")
                 time.sleep(2.5)
-                channel_camera = StreamChannel(self.connection.broker_uri)
-                Subscription(channel_camera).subscribe(
-                    f"CameraGateway.{self.connection.camera_id}.Frame"
-                )
+                channel_stream, channel_camera = _init_channels()
+                continue
+            
+            if img.size == 0:
                 continue
 
             with tracer.span(name="predict_tiffany"):
@@ -101,7 +107,12 @@ class Threading:
                         resolution=Resolution(height=720, width=1280),
                         frame_id=self.connection.camera_id,
                     )
-                    self.set_last_detection(obj, timestamp)
+                    msg = Message()
+                    msg.inject_tracing(span)
+                    msg.topic = f"Tiffany.{self.connection.camera_id}.Keypoints"
+                    msg.pack(obj)
+                    channel_stream.publish(msg)
+
                     if self.stream_event.is_set():
                         threading.Thread(
                             target=self.stream_detection,
@@ -110,24 +121,12 @@ class Threading:
                         ).start()
 
             tracer.end_span()
-        self.set_last_detection(ObjectAnnotations(), 0)
         self.detection_event.clear()
         self.stream_event.clear()
+        self._end_time = 0.0
         self.log.info("Detection finished.")
         channel_camera.close()
         channel_stream.close()
-
-    def set_last_detection(
-        self, detection: ObjectAnnotations, timestamp: float
-    ) -> None:
-        """Safely updates the last detection, image, and tracing span.
-
-        Args:
-            detection (ObjectAnnotations): Detected object annotations.
-            timestamp (float): Timestamp of the detection.
-        """
-        with self.lock:
-            self._last_detection = (detection, timestamp)
 
     def stream_detection(
         self,
@@ -228,38 +227,6 @@ class Threading:
         else:
             return Status(StatusCode.ALREADY_EXISTS, "Stream already running")
 
-    def get_last_message(self, *args) -> Union[Struct, ObjectAnnotations]:
-        """Return the latest detection either as a Struct (if request fields are present) or as ObjectAnnotations.
-
-        If a Struct-like request is provided as the first positional argument, the method builds and
-        returns a Struct containing:
-          - "detection": the detection converted to a dict
-          - "timestamp":
-        If no request fields are provided, the raw ObjectAnnotations object is returned.
-
-        The method reads shared state under a lock to ensure thread safety.
-        """
-        with self.lock:
-            detection, timestamp = self._last_detection
-        request = (
-            json_format.MessageToDict(args[0], preserving_proto_field_name=True)
-            if args
-            else None
-        )
-        if request and request.get("timestamp", False):
-            js = {
-                "detection": json_format.MessageToDict(
-                    detection, preserving_proto_field_name=True
-                )
-                if detection != ObjectAnnotations()
-                else {},
-                "timestamp": timestamp,
-            }
-            struct = Struct()
-            struct.update(js)
-            return struct
-        return detection
-
     def init_detection(self, seconds: Duration, ctx) -> Status:
         """Starts the detection thread if not already running.
 
@@ -273,6 +240,7 @@ class Threading:
         Returns:
             Status: `OK` if detection started, or `ALREADY_EXISTS` if already running.
         """
+        self._end_time = time.time() + seconds.seconds if self._end_time < time.time() else self._end_time + seconds.seconds
         if not self.detection_event.is_set():
             channel = Channel(self.connection.broker_uri)
             subscription = Subscription(channel)
@@ -293,10 +261,21 @@ class Threading:
             ):
                 threading.Thread(
                     target=self.detection_thread,
-                    name="DetectionThread",
-                    args=(seconds,),
+                    name="DetectionThread"
                 ).start()
             channel.close()
-            return Status(StatusCode.OK, "Detection started")
+            return Status(
+                StatusCode.OK,
+                f"Detection started with a duration of {seconds.seconds / 60:.2f} minutes.",
+            )
         else:
-            return Status(StatusCode.ALREADY_EXISTS, "Detection already running")
+            return Status(
+                StatusCode.ALREADY_EXISTS,
+                f"Detection already running. Added +{seconds.seconds / 60:.2f} minutes.",
+            )
+    
+    def stop(self, *args) -> Status:
+        self.stream_event.clear()
+        self.detection_event.clear()
+        self._end_time = 0.0
+        return Status(StatusCode.OK, "Stopping detection.")

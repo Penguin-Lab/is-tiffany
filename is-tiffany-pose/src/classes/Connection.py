@@ -34,7 +34,7 @@ class Connection:
 
         self.log.info(f"Successfully connected to broker at {broker_uri}")
 
-        self.exporter = self.create_exporter(service_name, zipkin_uri, log.log)
+        self.create_exporter(self, service_name, zipkin_uri, log.log)
         self.provider.add_interceptor(TracingInterceptor(self.exporter))
         self.log.info(
             f"Zipkin exporter initialized for service '{service_name}' with URI: {zipkin_uri}"
@@ -45,7 +45,7 @@ class Connection:
         self.service_name = service_name
 
     @staticmethod
-    def create_exporter(service_name: str, uri: str, log: Logger) -> ZipkinExporter:
+    def create_exporter(self, service_name: str, uri: str, log: Logger):
         """
         Creates and configures a ZipkinExporter for distributed tracing.
 
@@ -56,9 +56,6 @@ class Connection:
             service_name (str): Name of the service to be shown in Zipkin.
             uri (str): URI of the Zipkin server, expected format 'http://<hostname>:<port>'.
             log (Logger): Logger instance to record messages, especially errors.
-
-        Returns:
-            ZipkinExporter: Configured exporter ready to send traces.
 
         Raises:
             ValueError: If the provided URI does not match the expected format.
@@ -75,4 +72,4 @@ class Connection:
             port=zipkin_ok.group(3),
             transport=AsyncTransport,
         )
-        return exporter
+        self.exporter = exporter

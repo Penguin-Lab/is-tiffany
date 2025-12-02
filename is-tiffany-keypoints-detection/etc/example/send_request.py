@@ -16,7 +16,11 @@ camera_id = 3
 for id in range(1, 5):
     request = Message(content=Duration(seconds=3600), reply_to=subscription)
     channel.publish(request, topic=f"Tiffany.Keypoints.{id}.StartStream")
-
+Subscription(channel).subscribe("Tiffany.Keypoints..Detection")
+while True:
+    msg = channel.consume()
+    detection = msg.unpack(ObjectAnnotations)
+    print(f"Received detection from camera {camera_id}: {detection}")
 try:
     reply = channel.consume(timeout=5.0)
     print("[OK] Stream started. Status:", reply.status)
