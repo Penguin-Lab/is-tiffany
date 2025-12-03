@@ -170,20 +170,27 @@ class Threading:
             self._end_time += seconds.seconds
         events = [ev.is_set() for ev in self.keypoints_event.values()]
         if not all(events):
+            channel = StreamChannel(self.connection.broker_uri)
+            subscription = Subscription(channel)
+            request = Message(content=seconds, reply_to=subscription)
             for cam_id in self.parameters.keys():
+                channel.publish(
+                    request,
+                    topic=f"Tiffany.Keypoints.{cam_id}.StartDetection",
+                )
                 if not self.keypoints_event[cam_id].is_set():
                     t = threading.Thread(
                         target=self.get_keypoints_by_camera, args=(cam_id,)
                     )
                     t.start()
-
+            channel.close()
             if not self.pose_event.is_set():
                 t = threading.Thread(target=self.define_pose)
                 t.start()
 
-            return Status(StatusCode.OK, "Started")
+            return Status(StatusCode.OK, "Started.")
 
-        return Status(StatusCode.ALREADY_EXISTS, "Extended time")
+        return Status(StatusCode.ALREADY_EXISTS, "Extended time.")
 
     def stop(self, *args) -> Status:
         self._end_time = 0.0

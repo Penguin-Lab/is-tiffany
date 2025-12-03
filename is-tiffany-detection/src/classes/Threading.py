@@ -85,7 +85,7 @@ class Threading:
                             {
                                 "img": img,
                                 "annot": obj,
-                                "span_ctx": span,
+                                "span": span,
                             }
                         )
                     except queue.Full:
@@ -111,7 +111,7 @@ class Threading:
 
             img = item["img"]
             annot = item["annot"]
-            span = item["span_ctx"]
+            span = item["span"]
 
             img_drawn = self._draw(img, annot)
 
@@ -160,8 +160,8 @@ class Threading:
         if not self.detection_event.is_set():
             t = threading.Thread(target=self.detection_thread, name="DetectionThread")
             t.start()
-            return Status(StatusCode.OK, "Started")
-        return Status(StatusCode.OK, "Extended")
+            return Status(StatusCode.OK, "Started.")
+        return Status(StatusCode.OK, "Extended time.")
 
     def init_stream(self, seconds: Duration, ctx) -> Status:
         if not self.detection_event.is_set():
@@ -169,10 +169,10 @@ class Threading:
 
         if not self.stream_active:
             self.stream_active = True
-            return Status(StatusCode.OK, "Stream Started")
-        return Status(StatusCode.ALREADY_EXISTS, "Stream Already Active")
+            return Status(StatusCode.OK, "Stream Started.")
+        return Status(StatusCode.ALREADY_EXISTS, "Stream Already Active.")
 
     def stop(self, *args) -> Status:
         self.stream_active = False
         self._end_time = 0.0
-        return Status(StatusCode.OK, "Stopping")
+        return Status(StatusCode.OK, "Stopping.")

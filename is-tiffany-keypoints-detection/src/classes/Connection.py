@@ -43,7 +43,7 @@ class Connection:
             f"Successfully connected to broker at {broker_uri} for camera ID {camera_id}"
         )
         self.exporter = None
-        self.create_exporter(self, service_name, zipkin_uri, self.log)
+        self.create_exporter(service_name, zipkin_uri, self.log)
         self.provider.add_interceptor(TracingInterceptor(self.exporter))
         self.log.info(
             f"Zipkin exporter initialized for service '{service_name}' with URI: {zipkin_uri}"
@@ -54,7 +54,6 @@ class Connection:
         self.camera_id = camera_id
         self.service_name = service_name
 
-    @staticmethod
     def create_exporter(self, service_name: str, uri: str, log: Logger):
         """Creates and configures a ZipkinExporter for distributed tracing.
 

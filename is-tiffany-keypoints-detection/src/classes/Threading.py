@@ -38,6 +38,8 @@ class Threading:
 
         sub_cam = Subscription(channel_camera)
         sub_cam.subscribe(f"CameraGateway.{self.connection.camera_id}.Frame")
+        sub_stream = Subscription(channel_stream)
+        sub_stream.subscribe(f"Tiffany.{self.connection.camera_id}.Detection")
 
         self.connection.create_exporter(
             self, self.connection.service_name, self.connection.zipkin_uri, self.log
@@ -86,7 +88,7 @@ class Threading:
                             {
                                 "img": original_img,
                                 "annot": annot_msg,
-                                "span_context": span,
+                                "span": span,
                             }
                         )
                     except queue.Full:
@@ -102,7 +104,7 @@ class Threading:
     def _visualization_worker(self):
         """Thread persistente que consome da fila e desenha."""
         channel = StreamChannel(self.connection.broker_uri)
-        print(1)
+
         while True:
             try:
                 item = self.vis_queue.get(timeout=1.0)
@@ -150,6 +152,24 @@ class Threading:
 
             cv2.putText(
                 img_to_draw,
+                f"Original: {kp[0].score:.2f} | Shift: {(kp[0].score - 0.99) * 100:.2f}",
+                (20, 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                2,
+            )
+            cv2.putText(
+                img_to_draw,
+                f"Original: {kp[1].score:.2f} | Shift: {(kp[0].score - 0.99) * 100:.2f}",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 0, 255),
+                2,
+            )
+            cv2.putText(
+                img_to_draw,
                 f"{obj.score:.2f}",
                 (20, 60),
                 cv2.FONT_HERSHEY_SIMPLEX,
@@ -166,20 +186,27 @@ class Threading:
                 self.init_detection(seconds, ctx)
 
             self.stream_active = True
-            return Status(StatusCode.OK, "Stream started")
-        return Status(StatusCode.ALREADY_EXISTS, "Stream active")
+            return Status(StatusCode.OK, "Stream started.")
+        return Status(StatusCode.ALREADY_EXISTS, "Stream active.")
 
     def init_detection(self, seconds: Duration, ctx) -> Status:
         self._end_time = max(self._end_time, time.time() + seconds.seconds)
-
+        channel = StreamChannel(self.connection.broker_uri)
+        subscription = Subscription(channel)
+        request = Message(content=seconds, reply_to=subscription)
+        channel.publish(
+            request,
+            topic=f"Tiffany.Detection.{self.connection.camera_id}.StartDetection",
+        )
+        channel.close()
         if not self.detection_event.is_set():
             t = threading.Thread(target=self.detection_thread, name="DetectionThread")
             t.start()
-            return Status(StatusCode.OK, "Started")
+            return Status(StatusCode.OK, "Started.")
 
-        return Status(StatusCode.ALREADY_EXISTS, "Extended")
+        return Status(StatusCode.ALREADY_EXISTS, "Extended time.")
 
     def stop(self, *args) -> Status:
         self.stream_active = False
         self._end_time = 0.0
-        return Status(StatusCode.OK, "Stopping")
+        return Status(StatusCode.OK, "Stopping.")
